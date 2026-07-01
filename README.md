@@ -64,7 +64,7 @@ The model is interchangeable. The architecture is the interesting part.
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/YOUR-USERNAME/insight-pilot.git
+git clone https://github.com/tanuj404/insight-pilot.git
 cd insight-pilot
 
 # 2. Create and activate a virtual environment
@@ -144,4 +144,4 @@ MIT — see [LICENSE](LICENSE).
 
 Built by **Tanuj Ahuja** — MS Business Analytics student, prior Business Analyst experience in Power BI, DAX, SQL, and Python.
 
-GitHub: [@YOUR-USERNAME](https://github.com/YOUR-USERNAME)
+GitHub: [@tanuj404](https://github.com/tanuj404)
