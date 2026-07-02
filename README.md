@@ -1,6 +1,6 @@
 # InsightPilot
 
-**An AI agent that recommends KPIs, generates DAX & Tableau formulas, and answers analyst questions for any CSV — across 21 industries.**
+**An AI agent that recommends KPIs, generates DAX & Tableau formulas, and answers analyst questions for any CSV across 21 industries.**
 
 Built with Python, Streamlit, and Google Gemini.
 
