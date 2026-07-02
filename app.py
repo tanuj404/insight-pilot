@@ -7,14 +7,32 @@ from industry_knowledge import INDUSTRY_KNOWLEDGE
 import plotly.express as px
 import json
 
-# Load API key from .env file
+# ── API key handling: works locally AND when deployed ──
 load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
+# Try secrets first (Streamlit Cloud), then .env (local machine)
+api_key = None
+try:
+    api_key = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    api_key = os.getenv("GEMINI_API_KEY")
+
+# If still no key, ask the user for their own
+if not api_key:
+    st.title("📊 InsightPilot")
+    st.info(
+        "To use this app, enter your free Google Gemini API key below. "
+        "Get one at https://aistudio.google.com/apikey"
+    )
+    api_key = st.text_input("Gemini API Key:", type="password")
+    if not api_key:
+        st.stop()  # halt here until a key is provided
+
+genai.configure(api_key=api_key)
 # Page setup
-st.set_page_config(page_title="AI Analytics Agent", layout="wide")
-st.title("📊 Tanuj's AI Tool")
-st.write("Upload a CSV and let AI help you analyze it.")
+st.set_page_config(page_title="InsightPilot", layout="wide")
+st.title("InsightPilot")
+st.write("AI-powered KPI advisor and analytics agent. Upload a CSV to begin.")
 
 # File uploader
 uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
