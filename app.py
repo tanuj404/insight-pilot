@@ -17,33 +17,64 @@ try:
 except Exception:
     api_key = os.getenv("GEMINI_API_KEY")
 
+# Page setup — must come before any other st.* calls
+st.set_page_config(page_title="InsightPilot", layout="wide")
+
 # If still no key, ask the user for their own
 if not api_key:
-    st.title("📊 InsightPilot")
+    st.title("InsightPilot")
     st.info(
         "To use this app, enter your free Google Gemini API key below. "
         "Get one at https://aistudio.google.com/apikey"
     )
     api_key = st.text_input("Gemini API Key:", type="password")
     if not api_key:
-        st.stop()  # halt here until a key is provided
+        st.stop()
 
 genai.configure(api_key=api_key)
-# Page setup
-st.set_page_config(page_title="InsightPilot", layout="wide")
+
 st.title("InsightPilot")
 st.write("AI-powered KPI advisor and analytics agent. Upload a CSV to begin.")
 
-# File uploader
+# ══════════════════════════════════════════════════════════════════
+# SIDEBAR: Sample datasets (always visible)
+# ══════════════════════════════════════════════════════════════════
+st.sidebar.header("📁 Try a sample")
+st.sidebar.caption("Don't have a CSV? Load one of these to explore:")
+
+sample_col1, sample_col2 = st.sidebar.columns(2)
+with sample_col1:
+    if st.button("🛒 Retail", use_container_width=True, key="sample_retail"):
+        st.session_state.sample_file = "sample_data/retail_sales.csv"
+        st.session_state.sample_name = "retail_sales.csv"
+with sample_col2:
+    if st.button("🏦 Banking", use_container_width=True, key="sample_banking"):
+        st.session_state.sample_file = "sample_data/banking_loans.csv"
+        st.session_state.sample_name = "banking_loans.csv"
+
+st.sidebar.markdown("---")
+
+# ══════════════════════════════════════════════════════════════════
+# MAIN: File uploader + data source resolution
+# ══════════════════════════════════════════════════════════════════
 uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
-if uploaded_file is not None:
-    # Read the CSV
-    df = pd.read_csv(uploaded_file)
+df = None
+data_source_name = None
 
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
+    data_source_name = uploaded_file.name
+    # User uploaded their own — clear sample selection
+    st.session_state.pop("sample_file", None)
+elif "sample_file" in st.session_state:
+    df = pd.read_csv(st.session_state.sample_file)
+    data_source_name = st.session_state.sample_name
+
+if df is not None:
     # ── Sidebar: file info + schema + preview ──
     st.sidebar.header("📄 Dataset")
-    st.sidebar.write(f"**{uploaded_file.name}**")
+    st.sidebar.write(f"**{data_source_name}**")
     st.sidebar.caption(f"{df.shape[0]} rows · {df.shape[1]} columns")
 
     st.sidebar.markdown("---")
@@ -58,9 +89,8 @@ if uploaded_file is not None:
     st.sidebar.subheader("Preview (first 5)")
     st.sidebar.dataframe(df.head(5), hide_index=True, use_container_width=True)
 
-    # ── Auto-generate business questions when a new file is uploaded ──
-    # (runs once per file, before tabs render, so Tab 2 is ready immediately)
-    if st.session_state.get("last_uploaded_file") != uploaded_file.name:
+    # ── Auto-generate business questions when a new file/sample is loaded ──
+    if st.session_state.get("last_uploaded_file") != data_source_name:
         with st.spinner("Reading your data and preparing insights..."):
             columns = list(df.columns)
             sample_rows = df.head(3).to_string()
@@ -82,14 +112,14 @@ Return ONLY the 5 questions, one per line, no numbering, no extra text."""
 
             questions = [q.strip() for q in q_response.text.split("\n") if q.strip()]
             st.session_state.questions = questions
-            st.session_state.last_uploaded_file = uploaded_file.name
+            st.session_state.last_uploaded_file = data_source_name
             # Clear stale state from a previous file
             st.session_state.pop("active_question", None)
             st.session_state.pop("kpi_result", None)
             st.session_state.pop("formula_result", None)
 
     # ══════════════════════════════════════════════════════════════════
-    # TABS — two modes: KPI Briefing and Ask Questions
+    # TABS
     # ══════════════════════════════════════════════════════════════════
     tab_kpi, tab_qa = st.tabs(["🎯 KPI Briefing", "💬 Ask Questions"])
 
@@ -127,7 +157,6 @@ Return ONLY the 5 questions, one per line, no numbering, no extra text."""
         selected_industry = st.selectbox("Choose your industry:", industries)
         st.info(f"You selected: **{selected_industry}**")
 
-        # ── Generate KPI Suggestions ──
         if st.button("Generate KPI Suggestions"):
             with st.spinner("Analyzing your data..."):
                 columns = list(df.columns)
@@ -167,12 +196,10 @@ Only suggest KPIs that are actually possible given their columns."""
                 response = model.generate_content(prompt)
                 st.session_state.kpi_result = response.text
 
-        # ── Show KPIs (if we have them in memory) ──
         if "kpi_result" in st.session_state:
             st.subheader("AI-Recommended KPIs")
             st.markdown(st.session_state.kpi_result)
 
-            # ── Formula option ──
             st.markdown("---")
             st.write("Want the formulas for these KPIs?")
 
@@ -195,7 +222,6 @@ in code blocks. Assume standard column names from the list above."""
                     formula_response = model.generate_content(formula_prompt)
                     st.session_state.formula_result = formula_response.text
 
-        # ── Show formulas (if generated) ──
         if "formula_result" in st.session_state:
             st.subheader("KPI Formulas")
             st.markdown(st.session_state.formula_result)
@@ -204,14 +230,12 @@ in code blocks. Assume standard column names from the list above."""
     # TAB 2 — Ask Questions
     # ──────────────────────────────────────────────────────────────────
     with tab_qa:
-        # ── Auto-generated question buttons ──
         if "questions" in st.session_state:
             st.subheader("Click a question to get the answer")
             for i, q in enumerate(st.session_state.questions):
                 if st.button(q, key=f"q_{i}"):
                     st.session_state.active_question = q
 
-        # ── Free-text question box ──
         st.markdown("---")
         st.subheader("Or ask your own question")
 
@@ -226,14 +250,12 @@ in code blocks. Assume standard column names from the list above."""
             else:
                 st.warning("Please type a question first.")
 
-        # ── Answer the active question ──
         if "active_question" in st.session_state:
             question = st.session_state.active_question
             st.markdown("---")
             st.markdown(f"**Question:** {question}")
 
             with st.spinner("Analyzing..."):
-                # Give the AI the actual unique values in each column (grounding)
                 column_info = ""
                 for col in df.columns:
                     if df[col].dtype == "object":
@@ -274,7 +296,6 @@ Rules for the code:
                 model = genai.GenerativeModel("gemini-2.5-flash-lite")
                 response = model.generate_content(answer_prompt)
 
-                # Clean and parse the JSON response
                 raw = response.text.strip()
                 raw = raw.replace("```json", "").replace("```", "").strip()
 
@@ -284,7 +305,6 @@ Rules for the code:
                     needs_chart = data.get("needs_chart", False)
                     code = data.get("code", "")
 
-                    # ── Agentic retry loop ──
                     max_attempts = 3
                     local_vars = {"df": df, "pd": pd, "px": px}
                     real_result = None
@@ -326,7 +346,6 @@ Return ONLY the corrected Python code — no markdown, no backticks, no explanat
                                 code = code.replace("```python", "").replace("```", "").strip()
                                 local_vars = {"df": df, "pd": pd, "px": px}
 
-                    # Show results
                     if last_error:
                         st.error(f"Could not run the analysis after {max_attempts} attempts. Last error: {last_error}")
                     else:
@@ -336,11 +355,9 @@ Return ONLY the corrected Python code — no markdown, no backticks, no explanat
                             st.markdown("**Computed result:**")
                             st.write(real_result)
 
-                        # If a chart was built, show it
                         if needs_chart and "fig" in local_vars:
                             st.plotly_chart(local_vars["fig"], use_container_width=True)
 
-                    # Show the code for transparency
                     with st.expander("Show the code"):
                         st.code(code, language="python")
 

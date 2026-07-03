@@ -1,0 +1,31 @@
+Date,Branch,Product_Type,Loan_Amount,Interest_Rate,Customer_Segment,Loan_Status,Officer,Credit_Score
+2024-01-10,North Branch,Home Loan,250000,6.5,Prime,Approved,Sarah Chen,780
+2024-01-12,South Branch,Personal Loan,15000,11.2,Subprime,Approved,Mike Torres,640
+2024-01-14,East Branch,Auto Loan,35000,7.8,Prime,Approved,Priya Shah,720
+2024-01-15,West Branch,Home Loan,420000,6.2,Prime,Approved,Sarah Chen,810
+2024-01-18,North Branch,Business Loan,180000,8.5,Small Business,Approved,David Kim,700
+2024-01-20,South Branch,Personal Loan,8000,13.5,Subprime,Rejected,Mike Torres,580
+2024-01-22,East Branch,Home Loan,310000,6.7,Prime,Approved,Priya Shah,760
+2024-01-25,West Branch,Auto Loan,28000,8.2,Near-Prime,Approved,Sarah Chen,680
+2024-01-28,North Branch,Personal Loan,22000,10.5,Prime,Approved,David Kim,730
+2024-01-30,South Branch,Business Loan,95000,9.2,Small Business,Approved,Mike Torres,690
+2024-02-02,East Branch,Home Loan,275000,6.4,Prime,Approved,Priya Shah,790
+2024-02-05,West Branch,Auto Loan,42000,7.5,Prime,Approved,Sarah Chen,750
+2024-02-08,North Branch,Personal Loan,12000,12.8,Subprime,Rejected,David Kim,610
+2024-02-10,South Branch,Home Loan,360000,6.3,Prime,Approved,Mike Torres,800
+2024-02-12,East Branch,Business Loan,220000,8.0,Small Business,Approved,Priya Shah,740
+2024-02-15,West Branch,Personal Loan,18000,11.5,Near-Prime,Approved,Sarah Chen,670
+2024-02-18,North Branch,Auto Loan,31000,7.9,Prime,Approved,David Kim,720
+2024-02-20,South Branch,Home Loan,290000,6.6,Prime,Approved,Mike Torres,770
+2024-02-22,East Branch,Personal Loan,25000,10.8,Prime,Approved,Priya Shah,710
+2024-02-25,West Branch,Business Loan,140000,8.8,Small Business,Approved,Sarah Chen,700
+2024-02-28,North Branch,Home Loan,215000,6.8,Near-Prime,Approved,David Kim,660
+2024-03-02,South Branch,Auto Loan,26000,8.4,Near-Prime,Approved,Mike Torres,650
+2024-03-05,East Branch,Personal Loan,9000,13.2,Subprime,Rejected,Priya Shah,590
+2024-03-08,West Branch,Home Loan,485000,6.1,Prime,Approved,Sarah Chen,820
+2024-03-10,North Branch,Business Loan,175000,8.3,Small Business,Approved,David Kim,730
+2024-03-12,South Branch,Personal Loan,20000,11.0,Prime,Approved,Mike Torres,715
+2024-03-15,East Branch,Auto Loan,38000,7.6,Prime,Approved,Priya Shah,745
+2024-03-18,West Branch,Home Loan,325000,6.5,Prime,Approved,Sarah Chen,785
+2024-03-20,North Branch,Personal Loan,14000,12.2,Subprime,Rejected,David Kim,620
+2024-03-25,South Branch,Business Loan,260000,7.9,Small Business,Approved,Mike Torres,760
