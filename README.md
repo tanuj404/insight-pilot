@@ -1,3 +1,4 @@
+> 🔗 **[Try it live → insight-pilot-ai.streamlit.app](https://insight-pilot-ai.streamlit.app/)**
 # InsightPilot
 
 **An AI agent that recommends KPIs, generates DAX & Tableau formulas, and answers analyst questions for any CSV across 21 industries.**
