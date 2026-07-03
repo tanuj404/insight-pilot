@@ -8,7 +8,7 @@ Built with Python, Streamlit, and Google Gemini.
 
 ## The problem
 
-When a business or data analyst gets a new dataset, the first hours are spent on repetitive setup: figuring out which KPIs matter for the industry, writing the DAX or Tableau formulas from scratch, and guessing at the questions stakeholders will ask. Most tools built on top of LLMs solve *half* of this — you can already chat with a CSV in ChatGPT — but none of them proactively tell an analyst *what to track*, *how to compute it in Power BI or Tableau*, and *what a manager is likely to ask next*.
+When a business or data analyst gets a new dataset, the first hours are spent on repetitive setup: figuring out which KPIs matter for the industry, writing the DAX or Tableau formulas from scratch, and guessing at the questions stakeholders will ask. Most tools built on top of LLMs solve *half* of this — you can already chat with a CSV in ChatGPT but none of them proactively tell an analyst *what to track*, *how to compute it in Power BI or Tableau*, and *what a manager is likely to ask next*.
 
 InsightPilot does that.
 
