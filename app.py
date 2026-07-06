@@ -10,7 +10,6 @@ import json
 # ── API key handling: works locally AND when deployed ──
 load_dotenv()
 
-# Try secrets first (Streamlit Cloud), then .env (local machine)
 api_key = None
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
@@ -20,7 +19,6 @@ except Exception:
 # Page setup — must come before any other st.* calls
 st.set_page_config(page_title="InsightPilot", layout="wide")
 
-# If still no key, ask the user for their own
 if not api_key:
     st.title("InsightPilot")
     st.info(
@@ -37,7 +35,7 @@ st.title("InsightPilot")
 st.write("AI-powered KPI advisor and analytics agent. Upload a CSV to begin.")
 
 # ══════════════════════════════════════════════════════════════════
-# SIDEBAR: Sample datasets (always visible)
+# SIDEBAR: Sample datasets + Clear button (always visible)
 # ══════════════════════════════════════════════════════════════════
 st.sidebar.header("📁 Try a sample")
 st.sidebar.caption("Don't have a CSV? Load one of these to explore:")
@@ -47,10 +45,25 @@ with sample_col1:
     if st.button("🛒 Retail", use_container_width=True, key="sample_retail"):
         st.session_state.sample_file = "sample_data/retail_sales.csv"
         st.session_state.sample_name = "retail_sales.csv"
+        # Clear question/answer state when switching to a new sample
+        for k in ["active_question", "last_answered_question", "last_answer",
+                  "kpi_result", "formula_result"]:
+            st.session_state.pop(k, None)
 with sample_col2:
     if st.button("🏦 Banking", use_container_width=True, key="sample_banking"):
         st.session_state.sample_file = "sample_data/banking_loans.csv"
         st.session_state.sample_name = "banking_loans.csv"
+        for k in ["active_question", "last_answered_question", "last_answer",
+                  "kpi_result", "formula_result"]:
+            st.session_state.pop(k, None)
+
+st.sidebar.markdown("---")
+
+# Clear / Start Over button
+if st.sidebar.button("🔄 Clear / Start Over", use_container_width=True):
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.rerun()
 
 st.sidebar.markdown("---")
 
@@ -65,7 +78,6 @@ data_source_name = None
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
     data_source_name = uploaded_file.name
-    # User uploaded their own — clear sample selection
     st.session_state.pop("sample_file", None)
 elif "sample_file" in st.session_state:
     df = pd.read_csv(st.session_state.sample_file)
@@ -113,10 +125,10 @@ Return ONLY the 5 questions, one per line, no numbering, no extra text."""
             questions = [q.strip() for q in q_response.text.split("\n") if q.strip()]
             st.session_state.questions = questions
             st.session_state.last_uploaded_file = data_source_name
-            # Clear stale state from a previous file
-            st.session_state.pop("active_question", None)
-            st.session_state.pop("kpi_result", None)
-            st.session_state.pop("formula_result", None)
+            # Clear state from previous dataset
+            for k in ["active_question", "last_answered_question", "last_answer",
+                      "kpi_result", "formula_result"]:
+                st.session_state.pop(k, None)
 
     # ══════════════════════════════════════════════════════════════════
     # TABS
@@ -230,12 +242,14 @@ in code blocks. Assume standard column names from the list above."""
     # TAB 2 — Ask Questions
     # ──────────────────────────────────────────────────────────────────
     with tab_qa:
+        # ── Auto-generated question buttons ──
         if "questions" in st.session_state:
             st.subheader("Click a question to get the answer")
             for i, q in enumerate(st.session_state.questions):
                 if st.button(q, key=f"q_{i}"):
                     st.session_state.active_question = q
 
+        # ── Free-text question box ──
         st.markdown("---")
         st.subheader("Or ask your own question")
 
@@ -250,11 +264,15 @@ in code blocks. Assume standard column names from the list above."""
             else:
                 st.warning("Please type a question first.")
 
-        if "active_question" in st.session_state:
-            question = st.session_state.active_question
-            st.markdown("---")
-            st.markdown(f"**Question:** {question}")
+        # ══════════════════════════════════════════════════════════════
+        # ANSWER FLOW — only runs when a NEW question is activated
+        # (prevents burning API calls on every re-run)
+        # ══════════════════════════════════════════════════════════════
+        current_q = st.session_state.get("active_question")
+        last_answered = st.session_state.get("last_answered_question")
 
+        # Only fire the AI if the active question is NEW
+        if current_q and current_q != last_answered:
             with st.spinner("Analyzing..."):
                 column_info = ""
                 for col in df.columns:
@@ -269,7 +287,7 @@ in code blocks. Assume standard column names from the list above."""
 A pandas DataFrame called `df` has these columns and their actual values:
 {column_info}
 
-Answer this question: "{question}"
+Answer this question: "{current_q}"
 
 Decide whether a chart would help. A single number or one-word answer does
 NOT need a chart. A comparison, ranking, breakdown, or trend over time DOES.
@@ -305,6 +323,7 @@ Rules for the code:
                     needs_chart = data.get("needs_chart", False)
                     code = data.get("code", "")
 
+                    # ── Agentic retry loop ──
                     max_attempts = 3
                     local_vars = {"df": df, "pd": pd, "px": px}
                     real_result = None
@@ -346,22 +365,51 @@ Return ONLY the corrected Python code — no markdown, no backticks, no explanat
                                 code = code.replace("```python", "").replace("```", "").strip()
                                 local_vars = {"df": df, "pd": pd, "px": px}
 
-                    if last_error:
-                        st.error(f"Could not run the analysis after {max_attempts} attempts. Last error: {last_error}")
-                    else:
-                        st.markdown("**Answer:**")
-                        st.write(answer_text)
-                        if real_result is not None:
-                            st.markdown("**Computed result:**")
-                            st.write(real_result)
-
-                        if needs_chart and "fig" in local_vars:
-                            st.plotly_chart(local_vars["fig"], use_container_width=True)
-
-                    with st.expander("Show the code"):
-                        st.code(code, language="python")
+                    # Store the answer for persistent display across re-runs
+                    st.session_state.last_answered_question = current_q
+                    st.session_state.last_answer = {
+                        "answer_text": answer_text,
+                        "real_result": real_result,
+                        "code": code,
+                        "last_error": last_error,
+                        "needs_chart": needs_chart,
+                        "fig": local_vars.get("fig") if (needs_chart and "fig" in local_vars) else None,
+                    }
 
                 except Exception as e:
-                    st.error(f"Could not run the analysis: {e}")
+                    st.session_state.last_answered_question = current_q
+                    st.session_state.last_answer = {
+                        "answer_text": None,
+                        "real_result": None,
+                        "code": None,
+                        "last_error": f"Could not parse AI response: {e}",
+                        "needs_chart": False,
+                        "fig": None,
+                        "raw": raw,
+                    }
+
+        # ── Display the persisted answer (survives re-runs) ──
+        if st.session_state.get("last_answer"):
+            ans = st.session_state.last_answer
+            st.markdown("---")
+            st.markdown(f"**Question:** {st.session_state.last_answered_question}")
+
+            if ans.get("last_error") and ans.get("answer_text") is None:
+                st.error(ans["last_error"])
+                if "raw" in ans:
                     with st.expander("Show raw AI response"):
-                        st.code(raw)
+                        st.code(ans["raw"])
+            elif ans.get("last_error"):
+                st.error(f"Could not run the analysis after 3 attempts. Last error: {ans['last_error']}")
+            else:
+                st.markdown("**Answer:**")
+                st.write(ans["answer_text"])
+                if ans.get("real_result") is not None:
+                    st.markdown("**Computed result:**")
+                    st.write(ans["real_result"])
+                if ans.get("fig") is not None:
+                    st.plotly_chart(ans["fig"], use_container_width=True)
+
+            if ans.get("code"):
+                with st.expander("Show the code"):
+                    st.code(ans["code"], language="python")
