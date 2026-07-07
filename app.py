@@ -19,6 +19,70 @@ except Exception:
 # Page setup — must come before any other st.* calls
 st.set_page_config(page_title="InsightPilot", layout="wide")
 
+# ══════════════════════════════════════════════════════════════════
+# CUSTOM CSS — Analyst Pro polish
+# ══════════════════════════════════════════════════════════════════
+st.markdown("""
+<style>
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        max-width: 1200px;
+    }
+    h1 {
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: #0F172A;
+    }
+    h2, h3 {
+        font-weight: 600;
+        color: #1E293B;
+    }
+    .stAlert {
+        border-radius: 8px;
+        border: 1px solid #E2E8F0;
+    }
+    .stButton > button {
+        border-radius: 6px;
+        border: 1px solid #E2E8F0;
+        font-weight: 500;
+        transition: all 0.15s ease;
+    }
+    .stButton > button:hover {
+        border-color: #2563EB;
+        color: #2563EB;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 24px;
+        border-bottom: 1px solid #E2E8F0;
+    }
+    .stTabs [data-baseweb="tab"] {
+        font-weight: 500;
+        color: #64748B;
+        padding: 8px 4px;
+    }
+    .stTabs [aria-selected="true"] {
+        color: #2563EB;
+    }
+    [data-testid="stSidebar"] {
+        border-right: 1px solid #E2E8F0;
+    }
+    [data-testid="stSidebar"] .stButton > button {
+        border-radius: 6px;
+        font-size: 0.9rem;
+    }
+    .stDataFrame {
+        border: 1px solid #E2E8F0;
+        border-radius: 6px;
+    }
+    [data-testid="stFileUploader"] section {
+        border: 1px dashed #CBD5E1;
+        border-radius: 8px;
+        background-color: #F8FAFC;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 if not api_key:
     st.title("InsightPilot")
     st.info(
