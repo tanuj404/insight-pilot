@@ -6,6 +6,8 @@ import os
 from industry_knowledge import INDUSTRY_KNOWLEDGE
 import plotly.express as px
 import json
+import html
+import textwrap
 
 # ── API key handling: works locally AND when deployed ──
 load_dotenv()
@@ -83,8 +85,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ── If no API key, ask the user ──
 if not api_key:
-    st.title("InsightPilot")
+    st.markdown("""
+    <div style='text-align: center; padding: 24px 0 8px 0;'>
+        <div style='font-size: 56px; line-height: 1;'>📊</div>
+        <h1 style='margin: 12px 0 4px 0; padding: 0; font-size: 2.5rem;'>InsightPilot</h1>
+    </div>
+    """, unsafe_allow_html=True)
     st.info(
         "To use this app, enter your free Google Gemini API key below. "
         "Get one at https://aistudio.google.com/apikey"
@@ -95,8 +103,19 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-st.title("InsightPilot")
-st.write("AI-powered KPI advisor and analytics agent. Upload a CSV to begin.")
+# ══════════════════════════════════════════════════════════════════
+# CENTERED HERO
+# ══════════════════════════════════════════════════════════════════
+st.markdown("""
+<div style='text-align: center; padding: 24px 0 8px 0;'>
+    <div style='font-size: 56px; line-height: 1;'>📊</div>
+    <h1 style='margin: 12px 0 4px 0; padding: 0; font-size: 2.5rem;'>InsightPilot</h1>
+    <p style='color: #64748B; font-size: 1.05rem; margin: 0;'>
+        AI-powered KPI advisor and analytics agent.<br>
+        Upload a CSV to begin.
+    </p>
+</div>
+""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════
 # SIDEBAR: Sample datasets + Clear button (always visible)
@@ -109,7 +128,6 @@ with sample_col1:
     if st.button("🛒 Retail", use_container_width=True, key="sample_retail"):
         st.session_state.sample_file = "sample_data/retail_sales.csv"
         st.session_state.sample_name = "retail_sales.csv"
-        # Clear question/answer state when switching to a new sample
         for k in ["active_question", "last_answered_question", "last_answer",
                   "kpi_result", "formula_result"]:
             st.session_state.pop(k, None)
@@ -147,6 +165,53 @@ elif "sample_file" in st.session_state:
     df = pd.read_csv(st.session_state.sample_file)
     data_source_name = st.session_state.sample_name
 
+# ══════════════════════════════════════════════════════════════════
+# THREE FEATURE CARDS — landing only
+# ══════════════════════════════════════════════════════════════════
+    if df is None:
+        st.markdown("""
+    <div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;
+                margin-top: 28px; margin-bottom: 12px;'>
+
+        <div style='background: #1E293B; color: white; border-radius: 12px;
+                    padding: 28px 20px; text-align: center;'>
+            <div style='font-size: 32px; margin-bottom: 12px;'>📁</div>
+            <div style='font-weight: 600; font-size: 1.05rem; margin-bottom: 6px;'>
+                Feed the Pilot
+            </div>
+            <div style='color: #94A3B8; font-size: 0.85rem; line-height: 1.5;'>
+                Upload your raw business CSV data.
+            </div>
+        </div>
+
+        <div style='background: #ECFDF5; color: #064E3B; border-radius: 12px;
+                    padding: 28px 20px; text-align: center; border: 1px solid #D1FAE5;'>
+            <div style='font-size: 32px; margin-bottom: 12px;'>📊</div>
+            <div style='font-weight: 600; font-size: 1.05rem; margin-bottom: 6px;'>
+                Get KPI Briefing
+            </div>
+            <div style='color: #047857; font-size: 0.85rem; line-height: 1.5;'>
+                Industry-specific DAX & Tableau formulas instantly.
+            </div>
+        </div>
+
+        <div style='background: #EFF6FF; color: #1E3A8A; border-radius: 12px;
+                    padding: 28px 20px; text-align: center; border: 1px solid #DBEAFE;'>
+            <div style='font-size: 32px; margin-bottom: 12px;'>🤖</div>
+            <div style='font-weight: 600; font-size: 1.05rem; margin-bottom: 6px;'>
+                Run AI Analytics
+            </div>
+            <div style='color: #1D4ED8; font-size: 0.85rem; line-height: 1.5;'>
+                Click stakeholder questions to generate charts & insights.
+            </div>
+        </div>
+
+    </div>
+    """, unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════
+# MAIN WORKSPACE — appears once data is loaded
+# ══════════════════════════════════════════════════════════════════
 if df is not None:
     # ── Sidebar: file info + schema + preview ──
     st.sidebar.header("📄 Dataset")
@@ -189,7 +254,6 @@ Return ONLY the 5 questions, one per line, no numbering, no extra text."""
             questions = [q.strip() for q in q_response.text.split("\n") if q.strip()]
             st.session_state.questions = questions
             st.session_state.last_uploaded_file = data_source_name
-            # Clear state from previous dataset
             for k in ["active_question", "last_answered_question", "last_answer",
                       "kpi_result", "formula_result"]:
                 st.session_state.pop(k, None)
@@ -270,11 +334,16 @@ Only suggest KPIs that are actually possible given their columns."""
 
                 model = genai.GenerativeModel("gemini-2.5-flash-lite")
                 response = model.generate_content(prompt)
-                st.session_state.kpi_result = response.text
+                # Strip code fences and unescape HTML so returned markup renders
+                kpi_text = response.text.replace("```html", "").replace("```", "")
+                kpi_text = html.unescape(kpi_text)
+                # Remove common leading indentation and any leading newlines/spaces
+                kpi_text = textwrap.dedent(kpi_text).lstrip()
+                st.session_state.kpi_result = kpi_text
 
         if "kpi_result" in st.session_state:
             st.subheader("AI-Recommended KPIs")
-            st.markdown(st.session_state.kpi_result)
+            st.markdown(st.session_state.kpi_result, unsafe_allow_html=True)
 
             st.markdown("---")
             st.write("Want the formulas for these KPIs?")
@@ -296,24 +365,26 @@ in code blocks. Assume standard column names from the list above."""
 
                     model = genai.GenerativeModel("gemini-2.5-flash-lite")
                     formula_response = model.generate_content(formula_prompt)
-                    st.session_state.formula_result = formula_response.text
+                    formula_text = formula_response.text.replace("```html", "").replace("```", "")
+                    formula_text = html.unescape(formula_text)
+                    # Remove common leading indentation and any leading newlines/spaces
+                    formula_text = textwrap.dedent(formula_text).lstrip()
+                    st.session_state.formula_result = formula_text
 
         if "formula_result" in st.session_state:
             st.subheader("KPI Formulas")
-            st.markdown(st.session_state.formula_result)
+            st.markdown(st.session_state.formula_result, unsafe_allow_html=True)
 
     # ──────────────────────────────────────────────────────────────────
     # TAB 2 — Ask Questions
     # ──────────────────────────────────────────────────────────────────
     with tab_qa:
-        # ── Auto-generated question buttons ──
         if "questions" in st.session_state:
             st.subheader("Click a question to get the answer")
             for i, q in enumerate(st.session_state.questions):
                 if st.button(q, key=f"q_{i}"):
                     st.session_state.active_question = q
 
-        # ── Free-text question box ──
         st.markdown("---")
         st.subheader("Or ask your own question")
 
@@ -330,12 +401,10 @@ in code blocks. Assume standard column names from the list above."""
 
         # ══════════════════════════════════════════════════════════════
         # ANSWER FLOW — only runs when a NEW question is activated
-        # (prevents burning API calls on every re-run)
         # ══════════════════════════════════════════════════════════════
         current_q = st.session_state.get("active_question")
         last_answered = st.session_state.get("last_answered_question")
 
-        # Only fire the AI if the active question is NEW
         if current_q and current_q != last_answered:
             with st.spinner("Analyzing..."):
                 column_info = ""
@@ -429,7 +498,6 @@ Return ONLY the corrected Python code — no markdown, no backticks, no explanat
                                 code = code.replace("```python", "").replace("```", "").strip()
                                 local_vars = {"df": df, "pd": pd, "px": px}
 
-                    # Store the answer for persistent display across re-runs
                     st.session_state.last_answered_question = current_q
                     st.session_state.last_answer = {
                         "answer_text": answer_text,
