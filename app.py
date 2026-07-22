@@ -85,11 +85,24 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ══════════════════════════════════════════════════════════════════
+# LOGO — line-art bar-chart mark, used in hero + sidebar
+# ══════════════════════════════════════════════════════════════════
+def logo_svg(size=56):
+    return f"""<svg width="{size}" height="{size}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;">
+        <circle cx="32" cy="32" r="29" stroke="#334155" stroke-width="2"/>
+        <rect x="19" y="34" width="5" height="12" rx="1" fill="#334155"/>
+        <rect x="27" y="27" width="5" height="19" rx="1" fill="#334155"/>
+        <rect x="35" y="20" width="5" height="26" rx="1" fill="#334155"/>
+        <path d="M19 29 L28 22 L37 17 L44 13" stroke="#334155" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <path d="M38 13 L44 13 L44 19" stroke="#334155" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    </svg>"""
+
 # ── If no API key, ask the user ──
 if not api_key:
-    st.markdown("""
+    st.markdown(f"""
     <div style='text-align: center; padding: 24px 0 8px 0;'>
-        <div style='font-size: 56px; line-height: 1;'>📊</div>
+        <div style='display: flex; justify-content: center;'>{logo_svg(56)}</div>
         <h1 style='margin: 12px 0 4px 0; padding: 0; font-size: 2.5rem;'>InsightPilot</h1>
     </div>
     """, unsafe_allow_html=True)
@@ -106,14 +119,27 @@ genai.configure(api_key=api_key)
 # ══════════════════════════════════════════════════════════════════
 # CENTERED HERO
 # ══════════════════════════════════════════════════════════════════
-st.markdown("""
+st.markdown(f"""
 <div style='text-align: center; padding: 24px 0 8px 0;'>
-    <div style='font-size: 56px; line-height: 1;'>📊</div>
+    <div style='display: flex; justify-content: center;'>{logo_svg(64)}</div>
     <h1 style='margin: 12px 0 4px 0; padding: 0; font-size: 2.5rem;'>InsightPilot</h1>
     <p style='color: #64748B; font-size: 1.05rem; margin: 0;'>
         AI-powered KPI advisor and analytics agent.<br>
         Upload a CSV to begin.
     </p>
+</div>
+""", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════
+# SIDEBAR: Brand header (always visible)
+# ══════════════════════════════════════════════════════════════════
+st.sidebar.markdown(f"""
+<div style='display: flex; align-items: center; gap: 10px; padding: 0 0 20px 0;'>
+    <div>{logo_svg(32)}</div>
+    <div>
+        <div style='font-weight: 700; font-size: 1.2rem; color: #0F172A; line-height: 1.1;'>InsightPilot</div>
+        <div style='font-size: 0.72rem; color: #94A3B8; margin-top: 2px;'>Upload • Industry • Insights</div>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -166,66 +192,75 @@ elif "sample_file" in st.session_state:
     data_source_name = st.session_state.sample_name
 
 # ══════════════════════════════════════════════════════════════════
+# SIDEBAR: Dataset Info + Schema (always visible, empty state until loaded)
+# ══════════════════════════════════════════════════════════════════
+st.sidebar.subheader("📄 Dataset Info")
+if df is not None:
+    st.sidebar.write(f"**{data_source_name}**")
+    st.sidebar.caption(f"{df.shape[0]} rows · {df.shape[1]} columns")
+else:
+    st.sidebar.caption("200MB per file • dataset")
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("Schema")
+if df is not None:
+    schema_df = pd.DataFrame({
+        "Name": df.columns,
+        "Data type": [str(t) for t in df.dtypes],
+    })
+else:
+    schema_df = pd.DataFrame({"Name": [], "Data type": []})
+st.sidebar.dataframe(schema_df, hide_index=True, use_container_width=True)
+
+# ══════════════════════════════════════════════════════════════════
 # THREE FEATURE CARDS — landing only
 # ══════════════════════════════════════════════════════════════════
-    if df is None:
-        st.markdown("""
-    <div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;
-                margin-top: 28px; margin-bottom: 12px;'>
+if df is None:
+    st.markdown("""
+<div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;
+            margin-top: 28px; margin-bottom: 12px;'>
 
-        <div style='background: #1E293B; color: white; border-radius: 12px;
-                    padding: 28px 20px; text-align: center;'>
-            <div style='font-size: 32px; margin-bottom: 12px;'>📁</div>
-            <div style='font-weight: 600; font-size: 1.05rem; margin-bottom: 6px;'>
-                Feed the Pilot
-            </div>
-            <div style='color: #94A3B8; font-size: 0.85rem; line-height: 1.5;'>
-                Upload your raw business CSV data.
-            </div>
-        </div>
-
-        <div style='background: #ECFDF5; color: #064E3B; border-radius: 12px;
-                    padding: 28px 20px; text-align: center; border: 1px solid #D1FAE5;'>
-            <div style='font-size: 32px; margin-bottom: 12px;'>📊</div>
-            <div style='font-weight: 600; font-size: 1.05rem; margin-bottom: 6px;'>
-                Get KPI Briefing
-            </div>
-            <div style='color: #047857; font-size: 0.85rem; line-height: 1.5;'>
-                Industry-specific DAX & Tableau formulas instantly.
-            </div>
-        </div>
-
-        <div style='background: #EFF6FF; color: #1E3A8A; border-radius: 12px;
-                    padding: 28px 20px; text-align: center; border: 1px solid #DBEAFE;'>
-            <div style='font-size: 32px; margin-bottom: 12px;'>🤖</div>
-            <div style='font-weight: 600; font-size: 1.05rem; margin-bottom: 6px;'>
-                Run AI Analytics
-            </div>
-            <div style='color: #1D4ED8; font-size: 0.85rem; line-height: 1.5;'>
-                Click stakeholder questions to generate charts & insights.
-            </div>
-        </div>
-
+<div style='background: #1E293B; color: white; border-radius: 12px;
+            padding: 28px 20px; text-align: center;'>
+    <div style='font-size: 32px; margin-bottom: 12px;'>📁</div>
+    <div style='font-weight: 600; font-size: 1.05rem; margin-bottom: 6px;'>
+        Feed the Pilot
     </div>
-    """, unsafe_allow_html=True)
+    <div style='color: #94A3B8; font-size: 0.85rem; line-height: 1.5;'>
+        Upload your raw business CSV data.
+    </div>
+</div>
+
+<div style='background: #ECFDF5; color: #064E3B; border-radius: 12px;
+            padding: 28px 20px; text-align: center; border: 1px solid #D1FAE5;'>
+    <div style='font-size: 32px; margin-bottom: 12px;'>📊</div>
+    <div style='font-weight: 600; font-size: 1.05rem; margin-bottom: 6px;'>
+        Get KPI Briefing
+    </div>
+    <div style='color: #047857; font-size: 0.85rem; line-height: 1.5;'>
+        Industry-specific DAX & Tableau formulas instantly.
+    </div>
+</div>
+
+<div style='background: #EFF6FF; color: #1E3A8A; border-radius: 12px;
+            padding: 28px 20px; text-align: center; border: 1px solid #DBEAFE;'>
+    <div style='font-size: 32px; margin-bottom: 12px;'>🤖</div>
+    <div style='font-weight: 600; font-size: 1.05rem; margin-bottom: 6px;'>
+        Run AI Analytics
+    </div>
+    <div style='color: #1D4ED8; font-size: 0.85rem; line-height: 1.5;'>
+        Click stakeholder questions to generate charts & insights.
+    </div>
+</div>
+
+</div>
+""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════
 # MAIN WORKSPACE — appears once data is loaded
 # ══════════════════════════════════════════════════════════════════
 if df is not None:
-    # ── Sidebar: file info + schema + preview ──
-    st.sidebar.header("📄 Dataset")
-    st.sidebar.write(f"**{data_source_name}**")
-    st.sidebar.caption(f"{df.shape[0]} rows · {df.shape[1]} columns")
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Schema")
-    schema_df = pd.DataFrame({
-        "Column": df.columns,
-        "Type": [str(t) for t in df.dtypes],
-    })
-    st.sidebar.dataframe(schema_df, hide_index=True, use_container_width=True)
-
+    # ── Sidebar: data preview ──
     st.sidebar.markdown("---")
     st.sidebar.subheader("Preview (first 5)")
     st.sidebar.dataframe(df.head(5), hide_index=True, use_container_width=True)
