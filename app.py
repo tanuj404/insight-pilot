@@ -1,13 +1,20 @@
 import streamlit as st
+import numpy as np
 import pandas as pd
 import google.generativeai as genai
 from dotenv import load_dotenv
 import os
 from industry_knowledge import INDUSTRY_KNOWLEDGE
-import plotly.express as px
-import json
 import html
+import io
+import re
 import textwrap
+
+import charts
+import data_utils
+import guardrails
+import llm_client
+import pipeline
 
 # ── API key handling: works locally AND when deployed ──
 load_dotenv()
@@ -116,6 +123,43 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
+QUOTA_MESSAGE = (
+    "The AI service is busy right now (many people are using InsightPilot at once). "
+    "Please wait about 30 seconds and try again."
+)
+
+
+@st.cache_data(ttl=3600, max_entries=1000, show_spinner=False)
+def cached_llm(prompt: str) -> str:
+    """Identical prompts (e.g. the same sample dataset + question) are answered once and shared.
+    Errors are never cached, so a rate-limited call can simply be retried."""
+    return llm_client.generate_text(prompt)
+
+
+@st.cache_data(show_spinner=False)
+def load_path(path: str, mtime: float):
+    raw = data_utils.read_csv_robust(path)
+    return data_utils.prepare_dataframe(raw)
+
+
+@st.cache_data(show_spinner=False)
+def load_upload(data: bytes, name: str):
+    raw = data_utils.read_csv_robust(io.BytesIO(data))
+    return data_utils.prepare_dataframe(raw)
+
+
+RESET_KEYS = ["active_question", "last_answered_question", "last_answer",
+              "kpi_result", "formula_result", "answer_id"]
+
+
+def select_sample(path, name):
+    """Load a bundled dataset into the app and reset any previous analysis."""
+    st.session_state.sample_file = path
+    st.session_state.sample_name = name
+    for k in RESET_KEYS:
+        st.session_state.pop(k, None)
+
+
 # ══════════════════════════════════════════════════════════════════
 # CENTERED HERO
 # ══════════════════════════════════════════════════════════════════
@@ -151,24 +195,16 @@ st.sidebar.caption("Don't have a CSV? Load one of these to explore:")
 
 sample_col1, sample_col2 = st.sidebar.columns(2)
 with sample_col1:
-    if st.button("🛒 Retail", use_container_width=True, key="sample_retail"):
-        st.session_state.sample_file = "sample_data/retail_sales.csv"
-        st.session_state.sample_name = "retail_sales.csv"
-        for k in ["active_question", "last_answered_question", "last_answer",
-                  "kpi_result", "formula_result"]:
-            st.session_state.pop(k, None)
+    if st.button("🛒 Retail", width="stretch", key="sample_retail"):
+        select_sample("sample_data/retail_sales.csv", "retail_sales.csv")
 with sample_col2:
-    if st.button("🏦 Banking", use_container_width=True, key="sample_banking"):
-        st.session_state.sample_file = "sample_data/banking_loans.csv"
-        st.session_state.sample_name = "banking_loans.csv"
-        for k in ["active_question", "last_answered_question", "last_answer",
-                  "kpi_result", "formula_result"]:
-            st.session_state.pop(k, None)
+    if st.button("🏦 Banking", width="stretch", key="sample_banking"):
+        select_sample("sample_data/banking_loans.csv", "banking_loans.csv")
 
 st.sidebar.markdown("---")
 
 # Clear / Start Over button
-if st.sidebar.button("🔄 Clear / Start Over", use_container_width=True):
+if st.sidebar.button("🔄 Clear / Start Over", width="stretch"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.rerun()
@@ -182,14 +218,25 @@ uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
 df = None
 data_source_name = None
+prep_notes = []
 
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    data_source_name = uploaded_file.name
-    st.session_state.pop("sample_file", None)
-elif "sample_file" in st.session_state:
-    df = pd.read_csv(st.session_state.sample_file)
-    data_source_name = st.session_state.sample_name
+try:
+    if uploaded_file is not None:
+        df, prep_notes = load_upload(uploaded_file.getvalue(), uploaded_file.name)
+        data_source_name = uploaded_file.name
+        st.session_state.pop("sample_file", None)
+    elif "sample_file" in st.session_state:
+        sample_path = st.session_state.sample_file
+        df, prep_notes = load_path(sample_path, os.path.getmtime(sample_path))
+        data_source_name = st.session_state.sample_name
+except Exception as e:
+    st.error(
+        "That file could not be read as a CSV. Please re-export it as **CSV (UTF-8)** and try again."
+    )
+    with st.expander("Technical details"):
+        st.code(f"{type(e).__name__}: {e}")
+    df = None
+    data_source_name = None
 
 # ══════════════════════════════════════════════════════════════════
 # SIDEBAR: Dataset Info + Schema (always visible, empty state until loaded)
@@ -206,11 +253,15 @@ st.sidebar.subheader("Schema")
 if df is not None:
     schema_df = pd.DataFrame({
         "Name": df.columns,
-        "Data type": [str(t) for t in df.dtypes],
+        "Data type": [data_utils.dtype_label(df[c]) for c in df.columns],
     })
 else:
     schema_df = pd.DataFrame({"Name": [], "Data type": []})
-st.sidebar.dataframe(schema_df, hide_index=True, use_container_width=True)
+st.sidebar.dataframe(schema_df, hide_index=True, width="stretch")
+if df is not None and prep_notes:
+    with st.sidebar.expander("Automatic data preparation"):
+        for note in prep_notes:
+            st.write(f"• {note}")
 
 # ══════════════════════════════════════════════════════════════════
 # THREE FEATURE CARDS — landing only
@@ -263,34 +314,40 @@ if df is not None:
     # ── Sidebar: data preview ──
     st.sidebar.markdown("---")
     st.sidebar.subheader("Preview (first 5)")
-    st.sidebar.dataframe(df.head(5), hide_index=True, use_container_width=True)
+    st.sidebar.dataframe(df.head(5), hide_index=True, width="stretch")
 
     # ── Auto-generate business questions when a new file/sample is loaded ──
     if st.session_state.get("last_uploaded_file") != data_source_name:
         with st.spinner("Reading your data and preparing insights..."):
-            columns = list(df.columns)
-            sample_rows = df.head(3).to_string()
-
             q_prompt = f"""You are a senior business analyst.
 
-A dataset has these columns: {columns}
-Sample rows:
-{sample_rows}
+A dataset has these columns and values:
+{pipeline.column_info(df)}
 
 Generate exactly 5 specific business questions a manager or stakeholder
 would realistically ask about THIS data. Make them concrete and answerable
 from the columns above (e.g. "Which region has the highest revenue?").
+Include at least one question about a trend over time if there is a date
+column, and one ranking question.
 
 Return ONLY the 5 questions, one per line, no numbering, no extra text."""
 
-            model = genai.GenerativeModel("gemini-2.5-flash-lite")
-            q_response = model.generate_content(q_prompt)
+            questions_failed = False
+            try:
+                q_text = cached_llm(q_prompt)
+                questions = []
+                for line in q_text.split("\n"):
+                    line = re.sub(r"^[\-\*•\d\.\)\s]+", "", line).strip()
+                    if len(line) > 10:
+                        questions.append(line)
+                questions = questions[:5]
+            except llm_client.QuotaExceeded:
+                questions, questions_failed = [], True
 
-            questions = [q.strip() for q in q_response.text.split("\n") if q.strip()]
             st.session_state.questions = questions
+            st.session_state.questions_failed = questions_failed
             st.session_state.last_uploaded_file = data_source_name
-            for k in ["active_question", "last_answered_question", "last_answer",
-                      "kpi_result", "formula_result"]:
+            for k in RESET_KEYS:
                 st.session_state.pop(k, None)
 
     # ══════════════════════════════════════════════════════════════════
@@ -367,14 +424,19 @@ For each KPI give:
 
 Only suggest KPIs that are actually possible given their columns."""
 
-                model = genai.GenerativeModel("gemini-2.5-flash-lite")
-                response = model.generate_content(prompt)
-                # Strip code fences and unescape HTML so returned markup renders
-                kpi_text = response.text.replace("```html", "").replace("```", "")
-                kpi_text = html.unescape(kpi_text)
-                # Remove common leading indentation and any leading newlines/spaces
-                kpi_text = textwrap.dedent(kpi_text).lstrip()
-                st.session_state.kpi_result = kpi_text
+                try:
+                    kpi_raw = cached_llm(prompt)
+                except llm_client.QuotaExceeded:
+                    kpi_raw = None
+                if kpi_raw is None:
+                    st.warning(QUOTA_MESSAGE)
+                else:
+                    # Strip code fences and unescape HTML so returned markup renders
+                    kpi_text = kpi_raw.replace("```html", "").replace("```", "")
+                    kpi_text = html.unescape(kpi_text)
+                    # Remove common leading indentation and any leading newlines/spaces
+                    kpi_text = textwrap.dedent(kpi_text).lstrip()
+                    st.session_state.kpi_result = kpi_text
 
         if "kpi_result" in st.session_state:
             st.subheader("AI-Recommended KPIs")
@@ -398,39 +460,68 @@ For each KPI above, provide:
 Format clearly with the KPI name as a heading, then the two formulas
 in code blocks. Assume standard column names from the list above."""
 
-                    model = genai.GenerativeModel("gemini-2.5-flash-lite")
-                    formula_response = model.generate_content(formula_prompt)
-                    formula_text = formula_response.text.replace("```html", "").replace("```", "")
-                    formula_text = html.unescape(formula_text)
-                    # Remove common leading indentation and any leading newlines/spaces
-                    formula_text = textwrap.dedent(formula_text).lstrip()
-                    st.session_state.formula_result = formula_text
+                    try:
+                        formula_raw = cached_llm(formula_prompt)
+                    except llm_client.QuotaExceeded:
+                        formula_raw = None
+                    if formula_raw is None:
+                        st.warning(QUOTA_MESSAGE)
+                    else:
+                        formula_text = formula_raw.replace("```html", "").replace("```", "")
+                        formula_text = html.unescape(formula_text)
+                        # Remove common leading indentation and any leading newlines/spaces
+                        formula_text = textwrap.dedent(formula_text).lstrip()
+                        st.session_state.formula_result = formula_text
 
         if "formula_result" in st.session_state:
             st.subheader("KPI Formulas")
             st.markdown(st.session_state.formula_result, unsafe_allow_html=True)
 
+
     # ──────────────────────────────────────────────────────────────────
     # TAB 2 — Ask Questions
     # ──────────────────────────────────────────────────────────────────
+    def _format_scalar(v):
+        if isinstance(v, (bool, np.bool_)):
+            return str(v)
+        if isinstance(v, (int, np.integer)):
+            return f"{v:,}"
+        if isinstance(v, (float, np.floating)):
+            return f"{v:,.2f}"
+        if isinstance(v, pd.Timestamp):
+            return v.strftime("%Y-%m-%d")
+        return str(v)
+
     with tab_qa:
-        if "questions" in st.session_state:
+        if st.session_state.get("questions_failed"):
+            st.warning(QUOTA_MESSAGE + " Suggested questions could not be generated yet.")
+            if st.button("Try generating suggested questions again", key="retry_questions"):
+                st.session_state.pop("last_uploaded_file", None)
+                st.rerun()
+        elif st.session_state.get("questions"):
             st.subheader("Click a question to get the answer")
             for i, q in enumerate(st.session_state.questions):
                 if st.button(q, key=f"q_{i}"):
                     st.session_state.active_question = q
+                    st.session_state.pop("last_answered_question", None)
 
         st.markdown("---")
         st.subheader("Or ask your own question")
+        st.caption(
+            "Questions must be about the loaded dataset. Anything unrelated or inappropriate "
+            "returns \"Insufficient information/data\"."
+        )
 
         typed_question = st.text_input(
-            "Describe a business problem or ask anything about your data:",
-            placeholder="e.g. Why might revenue be lower in some regions?",
+            "Ask a question about your data:",
+            placeholder="e.g. Which region has the highest revenue?",
+            max_chars=guardrails.MAX_QUESTION_LEN,
         )
 
         if st.button("Analyze", key="analyze_typed"):
             if typed_question.strip():
                 st.session_state.active_question = typed_question
+                st.session_state.pop("last_answered_question", None)
             else:
                 st.warning("Please type a question first.")
 
@@ -438,144 +529,55 @@ in code blocks. Assume standard column names from the list above."""
         # ANSWER FLOW — only runs when a NEW question is activated
         # ══════════════════════════════════════════════════════════════
         current_q = st.session_state.get("active_question")
-        last_answered = st.session_state.get("last_answered_question")
-
-        if current_q and current_q != last_answered:
+        if current_q and current_q != st.session_state.get("last_answered_question"):
             with st.spinner("Analyzing..."):
-                column_info = ""
-                for col in df.columns:
-                    if df[col].dtype == "object":
-                        unique_vals = df[col].unique()[:10]
-                        column_info += f"- {col}: {list(unique_vals)}\n"
-                    else:
-                        column_info += f"- {col}: numeric ({df[col].dtype})\n"
-
-                answer_prompt = f"""You are a Python pandas and Plotly expert.
-
-A pandas DataFrame called `df` has these columns and their actual values:
-{column_info}
-
-Answer this question: "{current_q}"
-
-Decide whether a chart would help. A single number or one-word answer does
-NOT need a chart. A comparison, ranking, breakdown, or trend over time DOES.
-
-Return ONLY a JSON object (no markdown, no backticks) with these keys:
-- "answer": a short plain-English answer to the question
-- "needs_chart": true or false
-- "code": pandas code that computes the answer and stores it in a variable
-  called `result`. If needs_chart is true, also build a Plotly figure stored
-  in a variable called `fig` using plotly.express as px.
-
-Rules for the code:
-- `df`, `pd`, and `px` are already available. Do not import or load data.
-- Use the EXACT column names and values shown above. Do not guess values.
-- Return valid Python that runs as-is.
-- If the question asks about a metric that cannot be computed from the
-  available columns (e.g. profit margin without cost data), set
-  "needs_chart" to false and set "answer" to a clear explanation that
-  the data does not contain the columns needed, listing what would be
-  required. Do NOT invent or approximate the metric. Set "code" to
-  exactly: result = "Insufficient data"
-"""
-
-                model = genai.GenerativeModel("gemini-2.5-flash-lite")
-                response = model.generate_content(answer_prompt)
-
-                raw = response.text.strip()
-                raw = raw.replace("```json", "").replace("```", "").strip()
-
                 try:
-                    data = json.loads(raw)
-                    answer_text = data.get("answer", "")
-                    needs_chart = data.get("needs_chart", False)
-                    code = data.get("code", "")
-
-                    # ── Agentic retry loop ──
-                    max_attempts = 3
-                    local_vars = {"df": df, "pd": pd, "px": px}
-                    real_result = None
-                    last_error = None
-
-                    for attempt in range(max_attempts):
-                        try:
-                            exec(code, {}, local_vars)
-                            real_result = local_vars.get("result", None)
-                            last_error = None
-                            break
-
-                        except Exception as e:
-                            last_error = str(e)
-
-                            if attempt == max_attempts - 1:
-                                break
-
-                            with st.spinner(f"Fixing the code (attempt {attempt + 2})..."):
-                                fix_prompt = f"""The following pandas code failed with an error.
-
-Code:
-{code}
-
-Error:
-{last_error}
-
-The DataFrame `df` has these columns and values:
-{column_info}
-
-Rewrite the code to fix the error. Use the EXACT column names and values
-shown above. Store the answer in `result`. If a Plotly figure was being
-built, keep it in a variable called `fig`.
-
-Return ONLY the corrected Python code — no markdown, no backticks, no explanation."""
-
-                                fix_response = model.generate_content(fix_prompt)
-                                code = fix_response.text.strip()
-                                code = code.replace("```python", "").replace("```", "").strip()
-                                local_vars = {"df": df, "pd": pd, "px": px}
-
-                    st.session_state.last_answered_question = current_q
-                    st.session_state.last_answer = {
-                        "answer_text": answer_text,
-                        "real_result": real_result,
-                        "code": code,
-                        "last_error": last_error,
-                        "needs_chart": needs_chart,
-                        "fig": local_vars.get("fig") if (needs_chart and "fig" in local_vars) else None,
+                    outcome = pipeline.run_question(df, current_q, cached_llm)
+                except llm_client.QuotaExceeded:
+                    outcome = {"status": "quota"}
+                except Exception as e:  # noqa: BLE001 - never show a raw traceback to students
+                    outcome = {
+                        "status": "error",
+                        "message": "Something went wrong while analyzing. Please try again or rephrase the question.",
+                        "detail": f"{type(e).__name__}: {e}",
                     }
-
-                except Exception as e:
-                    st.session_state.last_answered_question = current_q
-                    st.session_state.last_answer = {
-                        "answer_text": None,
-                        "real_result": None,
-                        "code": None,
-                        "last_error": f"Could not parse AI response: {e}",
-                        "needs_chart": False,
-                        "fig": None,
-                        "raw": raw,
-                    }
+            st.session_state.last_answered_question = current_q
+            st.session_state.last_answer = outcome
+            st.session_state.answer_id = st.session_state.get("answer_id", 0) + 1
 
         # ── Display the persisted answer (survives re-runs) ──
-        if st.session_state.get("last_answer"):
-            ans = st.session_state.last_answer
+        ans = st.session_state.get("last_answer")
+        if ans:
             st.markdown("---")
-            st.markdown(f"**Question:** {st.session_state.last_answered_question}")
+            st.markdown(f"**Question:** {st.session_state.get('last_answered_question')}")
+            status = ans.get("status")
 
-            if ans.get("last_error") and ans.get("answer_text") is None:
-                st.error(ans["last_error"])
-                if "raw" in ans:
-                    with st.expander("Show raw AI response"):
-                        st.code(ans["raw"])
-            elif ans.get("last_error"):
-                st.error(f"Could not run the analysis after 3 attempts. Last error: {ans['last_error']}")
+            if status == "insufficient":
+                st.warning(ans["message"])
+            elif status == "quota":
+                st.warning(QUOTA_MESSAGE)
+            elif status == "error":
+                st.error(ans["message"])
+                detail = ans.get("detail") or ans.get("raw")
+                if detail:
+                    with st.expander("Technical details"):
+                        st.code(str(detail))
             else:
                 st.markdown("**Answer:**")
                 st.write(ans["answer_text"])
-                if ans.get("real_result") is not None:
-                    st.markdown("**Computed result:**")
-                    st.write(ans["real_result"])
-                if ans.get("fig") is not None:
-                    st.plotly_chart(ans["fig"], use_container_width=True)
+                result = ans["result"]
+
+                if ans["kind"] == "scalar":
+                    st.metric("Result", _format_scalar(result))
+                else:
+                    # The AI/chart engine picks ONE chart that fits the question and the data.
+                    fig = None
+                    if ans.get("chart_type"):
+                        fig = charts.build_figure(result, ans["chart_type"], ans.get("chart_title"))
+                    if fig is not None:
+                        st.plotly_chart(fig, width="stretch")
+                    with st.expander("Show computed result", expanded=fig is None):
+                        st.dataframe(result.head(1000), hide_index=True, width="stretch")
 
             if ans.get("code"):
                 with st.expander("Show the code"):

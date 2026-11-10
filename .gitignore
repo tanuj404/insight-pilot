@@ -71,3 +71,6 @@ logs/
 # Throwaway scripts from setup
 test_gemini.py
 list_models.py
+
+# Local test output
+tools/out/
